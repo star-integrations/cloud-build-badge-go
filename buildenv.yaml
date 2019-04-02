@@ -1,2 +1,1 @@
-REPO: env-repo
-BRANCH: env-branch
+BUILD_RESULT_BADGE_BUCKET: cloud-build-result
