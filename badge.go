@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 
 	"cloud.google.com/go/storage"
 )
@@ -24,7 +25,8 @@ type CloudBuildPubSubMsg struct {
 
 // Source トリガ元
 type Source struct {
-	RepoSource Repo `json:"repoSource"`
+	RepoSource    Repo    `json:"repoSource"`
+	StorageSource Storage `json:"storageSource"`
 }
 
 // Repo gitトリガ
@@ -34,42 +36,69 @@ type Repo struct {
 	BranchName string `json:"branchName"`
 }
 
+// Storage CloudStorageトリガ
+type Storage struct {
+	Bucket     string `json:"bucket"`
+	Object     string `json:"object"`
+	Generation string `json:"generation"`
+}
+
 // CloudBuildBadgeStatus バッジを更新する。
 func CloudBuildBadgeStatus(ctx context.Context, m PubSubMessage) error {
-	log.Printf("pub/sub msg:[%#+v]", string(m.Data))
+	// pub/submessage Unmarshal
 	pubsubMsg := &CloudBuildPubSubMsg{}
 	if err := json.Unmarshal(m.Data, pubsubMsg); err != nil {
 		log.Printf("pub/sub message unmarshal error:[%s]", err.Error())
 		return nil
 	}
-	log.Printf("pub/sub msg:[%#+v]", pubsubMsg)
 
-	repo := pubsubMsg.Source.RepoSource
-	if repo.ProjectID == "" || repo.RepoName == "" || repo.BranchName == "" {
-		log.Printf("pub/sub message repo infomation empty")
-		return nil
-	}
-
+	// CloudStorage client
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		log.Printf("cloud storage client error:[%s]", err.Error())
 		return nil
 	}
-	badgeBucket := client.Bucket("cloud-build-my-badge")
-	buildResultBucket := client.Bucket("cloud-build-my-result")
 
-	buildResultObject := buildResultBucket.Object(fmt.Sprintf("%s/%s/%s", repo.ProjectID, repo.RepoName, repo.BranchName))
+	// build badge bucket
+	badgeBucketName := os.Getenv("BUILD_RESULT_BADGE_BUCKET")
+	if badgeBucketName == "" {
+		log.Printf("badge bucket empty")
+		return nil
+	}
+	badgeBucket := client.Bucket(badgeBucketName)
 
-	var badge *storage.ObjectHandle
+	// build result badge object
+	var buildResultObject *storage.ObjectHandle
+	source := pubsubMsg.Source
+	if source.RepoSource.ProjectID != "" && source.RepoSource.RepoName != "" && source.RepoSource.BranchName != "" {
+		repo := source.RepoSource
+		badgeObject := fmt.Sprintf("%s/%s/%s/badge.svg", repo.ProjectID, repo.RepoName, repo.BranchName)
+		buildResultObject = badgeBucket.Object(badgeObject)
+		log.Printf("pub/sub message repo infomation empty")
+	} else if source.StorageSource.Bucket != "" && source.StorageSource.Generation != "" {
+		repo := source.StorageSource
+		badgeObject := fmt.Sprintf("%s/%s/badge.svg", repo.Bucket, repo.Generation)
+		buildResultObject = badgeBucket.Object(badgeObject)
+	}
+
+	// build badge object
+	var badgeObject *storage.ObjectHandle
 	if pubsubMsg.Status == "SUCCESS" {
 		log.Printf("build success!")
-		badge = badgeBucket.Object("success.svg")
+		badgeObject = badgeBucket.Object("success.svg")
 	} else {
 		log.Printf("build failure...")
-		badge = badgeBucket.Object("failure.svg")
+		badgeObject = badgeBucket.Object("failure.svg")
 	}
-	if _, err := buildResultObject.CopierFrom(badge).Run(ctx); err != nil {
+
+	// result badge copy from bucket
+	if _, err := buildResultObject.CopierFrom(badgeObject).Run(ctx); err != nil {
 		log.Printf("badge object copy error:[%s]", err.Error())
+		return nil
+	}
+
+	if err := buildResultObject.ACL().Set(ctx, storage.AllUsers, storage.RoleReader); err != nil {
+		log.Printf("fail set public url to result object:[%s]", err.Error())
 		return nil
 	}
 
