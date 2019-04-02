@@ -1,0 +1,20 @@
+steps:
+  - name: 'gcr.io/cloud-builders/git'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pwd
+        ls -all
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'badge-status'
+      - '--region=asia-northeast1'
+      - '--trigger-topic=cloud-builds'
+      - '--runtime=go111'
+      - '--entry-point=CloudBuildBadgeStatus'
+      - '--env-vars-file=buildenv.yaml'
+      - '--memory=128'
+      - '--timeout=30s'
