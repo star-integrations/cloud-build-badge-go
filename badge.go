@@ -74,8 +74,8 @@ func CloudBuildBadgeStatus(ctx context.Context, m PubSubMessage) error {
 		repo := source.RepoSource
 		badgeObject := fmt.Sprintf("%s/%s/%s/badge.svg", repo.ProjectID, repo.RepoName, repo.BranchName)
 		buildResultObject = badgeBucket.Object(badgeObject)
-		log.Printf("pub/sub message repo infomation empty")
 	} else if source.StorageSource.Bucket != "" && source.StorageSource.Generation != "" {
+		log.Printf("pub/sub message repo infomation empty")
 		repo := source.StorageSource
 		badgeObject := fmt.Sprintf("%s/%s/badge.svg", repo.Bucket, repo.Generation)
 		buildResultObject = badgeBucket.Object(badgeObject)
